@@ -1,6 +1,6 @@
 ﻿using System;
-using System.Windows.Forms;
 using System.Runtime.InteropServices;
+using System.Diagnostics;
 using WMPLib;
 
 namespace RemoteWMP
@@ -8,52 +8,78 @@ namespace RemoteWMP
     /// <summary>
     /// This is the actual Windows Media Control.
     /// </summary>
-    [System.Windows.Forms.AxHost.ClsidAttribute("{6bf52a52-394a-11d3-b153-00c04f79faa6}")]
     [ComVisible(true)]
     [ClassInterface(ClassInterfaceType.AutoDispatch)]
-    public class RemotedWindowsMediaPlayer : System.Windows.Forms.AxHost,
+    public class RemotedWindowsMediaPlayer :
+        IDisposable,
         IOleServiceProvider,
         IOleClientSite
     {
 
-        /// <summary>
-        /// Used to attach the appropriate interface to Windows Media Player.
-        /// In here, we call SetClientSite on the WMP Control, passing it
-        /// the dotNet container (this instance.)
-        /// </summary>
-        protected override void AttachInterfaces()
+        IWMPPlayer4 m_instance;
+
+        public RemotedWindowsMediaPlayer()
         {
+            // Create the Windows Media Player object
+            Type type = Type.GetTypeFromCLSID(new Guid("6bf52a52-394a-11d3-b153-00c04f79faa6"));
+            object instance = Activator.CreateInstance(type);
+                
+            //Get the IOleObject for Windows Media Player.
+            IOleObject oleObject = instance as IOleObject;
 
-            try
+            if (oleObject == null)
             {
-                //Get the IOleObject for Windows Media Player.
-                IOleObject oleObject = this.GetOcx() as IOleObject;
-
-                if (oleObject != null)
-                {
-                    //Set the Client Site for the WMP control.
-                    oleObject.SetClientSite(this as IOleClientSite);
-
-                    // Try and get the OCX as a WMP player
-                    if (this.GetOcx() as IWMPPlayer4 == null)
-                    {
-                        throw new Exception(string.Format("OCX is not an IWMPPlayer4! GetType returns '{0}'",
-                                                          this.GetOcx().GetType()));
-                    }
-                }
-                else
-                {
-                    throw new Exception("Failed to get WMP OCX as an IOleObject?!");
-                }
-
-                return;
+                throw new Exception("Failed to get WMP OCX as an IOleObject?!");
             }
-            catch (System.Exception ex)
+
+            //Set the Client Site for the WMP control.
+            oleObject.SetClientSite(this as IOleClientSite);
+
+            // Try and get the OCX as a WMP player
+            m_instance = instance as IWMPPlayer4;
+            if (m_instance == null)
             {
-                System.Diagnostics.Debug.WriteLine(ex.ToString());
+                Marshal.FinalReleaseComObject(instance);
+                throw new Exception(string.Format("OCX is not an IWMPPlayer4! GetType returns '{0}'", m_instance.GetType()));
             }
         }
 
+        private IWMPPlayer4 m_player;
+        public IWMPPlayer4 Player
+        {
+            get
+            {
+                if (m_player == null)
+                {
+                    m_player = (IWMPPlayer4)m_instance;
+                }
+                return m_player;
+            }
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+        }
+
+        ~RemotedWindowsMediaPlayer()
+        {
+            Dispose(false);
+        }
+
+        private void Dispose(bool disposing)
+        {
+            if (m_instance != null)
+            {
+#if DEBUG
+                if (!disposing) Debug.Fail("Failed to dispose of RemoteWindowsMediaPlayer.");
+#endif
+                m_player = null;
+                Marshal.FinalReleaseComObject(m_instance);
+                m_instance = null;
+                GC.SuppressFinalize(this);
+            }
+        }
 
         #region IOleServiceProvider Memebers - Working
         /// <summary>
@@ -63,15 +89,20 @@ namespace RemoteWMP
         /// <param name="riid">The Guid of the desired service to be returned.  For this application it will always match
         /// the Guid of <see cref="IWMPRemoteMediaServices"/>.</param>
         /// <returns></returns>
+        RemoteHostInfo m_remoteHostInfo = null;
         IntPtr IOleServiceProvider.QueryService(ref Guid guidService, ref Guid riid)
         {
             //If we get to here, it means Media Player is requesting our IWMPRemoteMediaServices interface
             if (riid == new Guid("cbb92747-741f-44fe-ab5b-f1a48f3b2a59"))
             {
-                IWMPRemoteMediaServices iwmp = new RemoteHostInfo();
-                return Marshal.GetComInterfaceForObject(iwmp, typeof(IWMPRemoteMediaServices));
+                if (m_remoteHostInfo == null)
+                {
+                    m_remoteHostInfo = new RemoteHostInfo();
+                }
+                return Marshal.GetComInterfaceForObject(m_remoteHostInfo, typeof(IWMPRemoteMediaServices));
             }
 
+            // Unknown interface
             throw new System.Runtime.InteropServices.COMException("No Interface", (int)HResults.E_NOINTERFACE);
         }
         #endregion
@@ -133,26 +164,6 @@ namespace RemoteWMP
 
         #endregion
 
-        /// <summary>
-        /// Default Constructor.
-        /// </summary>
-        public RemotedWindowsMediaPlayer() :
-            base("6bf52a52-394a-11d3-b153-00c04f79faa6")
-        {
-        }
-
-        private IWMPPlayer4 mPlayer;
-        public IWMPPlayer4 Player
-        {
-            get
-            {
-                if (mPlayer == null)
-                {
-                    mPlayer = (IWMPPlayer4)GetOcx();
-                }
-                return mPlayer;
-            }
-        }
     }
 
     /// <summary>

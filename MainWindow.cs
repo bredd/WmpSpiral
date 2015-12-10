@@ -20,12 +20,17 @@ namespace WmpSpiral
         {
             InitializeComponent();
 
-            // Add the player control (though there's no visual interaction, it needs the ActiveX support)
             remotePlayer = new RemoteWMP.RemotedWindowsMediaPlayer();
-            remotePlayer.Dock = DockStyle.Bottom;
-            remotePlayer.Location = new System.Drawing.Point(0,0);
-            remotePlayer.Size = new System.Drawing.Size(5, 5);
-            Controls.Add(remotePlayer);
+        }
+
+        protected override void OnClosed(EventArgs e)
+        {
+            if (remotePlayer != null)
+            {
+                remotePlayer.Dispose();
+                remotePlayer = null;
+            }
+            base.OnClosed(e);
         }
 
         private List<MediaHolder> RetrievePlayList()
